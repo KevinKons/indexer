@@ -121,6 +121,12 @@ export const handleEvents = async (events: EnhancedEvent[], onChainData: OnChain
 
         const fromNumber = Number(fromTokenId);
         const toNumber = Number(toTokenId);
+
+        // For safety, add a limit
+        if (toNumber - fromNumber > 100) {
+          break;
+        }
+
         for (let i = fromNumber; i <= toNumber; i++) {
           const tokenId = i.toString();
 
@@ -161,38 +167,7 @@ export const handleEvents = async (events: EnhancedEvent[], onChainData: OnChain
             }
           }
 
-          // Make sure to only handle the same data once per transaction
-          const contextPrefix = `${baseEventParams.txHash}-${baseEventParams.address}-${tokenId}`;
-
-          onChainData.makerInfos.push({
-            context: `${contextPrefix}-${from}-sell-balance`,
-            maker: from,
-            trigger: {
-              kind: "balance-change",
-              txHash: baseEventParams.txHash,
-              txTimestamp: baseEventParams.timestamp,
-            },
-            data: {
-              kind: "sell-balance",
-              contract: baseEventParams.address,
-              tokenId,
-            },
-          });
-
-          onChainData.makerInfos.push({
-            context: `${contextPrefix}-${to}-sell-balance`,
-            maker: to,
-            trigger: {
-              kind: "balance-change",
-              txHash: baseEventParams.txHash,
-              txTimestamp: baseEventParams.timestamp,
-            },
-            data: {
-              kind: "sell-balance",
-              contract: baseEventParams.address,
-              tokenId,
-            },
-          });
+          // Skip pushing to `makerInfos` since that could result in "out-of-memory" errors
         }
 
         break;
