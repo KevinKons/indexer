@@ -77,6 +77,16 @@ export class OrderRevalidationsJob extends AbstractRabbitMqJobHandler {
             return;
           }
 
+          logger.info(
+            this.queueName,
+            JSON.stringify({
+              contract,
+              blacklistedOperators,
+              whitelistedOperators,
+              createdAtContinutation,
+            })
+          );
+
           let done = true;
 
           const limit = 1000;
@@ -132,6 +142,13 @@ export class OrderRevalidationsJob extends AbstractRabbitMqJobHandler {
                 whitelistedOperators: whitelistedOperators?.map((o) => toBuffer(o)),
                 createdAt: createdAtContinutation,
               }
+            );
+
+            logger.info(
+              this.queueName,
+              JSON.stringify({
+                results,
+              })
             );
 
             // Recheck the orders
