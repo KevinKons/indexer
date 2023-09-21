@@ -215,6 +215,7 @@ export const getTokensV6Options: RouteOptions = {
       tokens: Joi.array().items(
         Joi.object({
           token: Joi.object({
+            chainId: Joi.number().required(),
             contract: Joi.string().lowercase().pattern(regex.address).required(),
             tokenId: Joi.string().pattern(regex.number).required(),
             name: Joi.string().allow("", null),
@@ -1205,6 +1206,7 @@ export const getTokensV6Options: RouteOptions = {
 
         return {
           token: {
+            chainId: config.chainId,
             contract,
             tokenId,
             name: r.name,
