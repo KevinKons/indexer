@@ -143,6 +143,16 @@ export class Collections {
       return;
     }
 
+    try {
+      await registry.refreshRegistryRoyalties(collectionResult.id);
+      await royalties.refreshDefaultRoyalties(collectionResult.id);
+    } catch (error) {
+      logger.error(
+        "updateCollectionCache",
+        `refreshRegistryRoyaltiesError. contract=${contract}, tokenId=${tokenId}, community=${community}`
+      );
+    }
+
     const collection = await MetadataProviderRouter.getCollectionMetadata(
       contract,
       tokenId,
