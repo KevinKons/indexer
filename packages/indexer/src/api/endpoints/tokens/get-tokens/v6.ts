@@ -12,9 +12,11 @@ import { logger } from "@/common/logger";
 import {
   getJoiPriceObject,
   getJoiSaleObject,
+  getJoiSourceObject,
   JoiAttributeValue,
   JoiPrice,
   JoiSale,
+  JoiSource,
 } from "@/common/joi";
 import {
   bn,
@@ -277,7 +279,7 @@ export const getTokensV6Options: RouteOptions = {
                 kind: Joi.string().valid("dutch", "pool"),
                 data: Joi.object(),
               }).description("Can be null if no active ask."),
-              source: Joi.object().allow(null),
+              source: JoiSource.allow(null),
             },
             topBid: Joi.object({
               id: Joi.string().allow(null),
@@ -285,7 +287,7 @@ export const getTokensV6Options: RouteOptions = {
               maker: Joi.string().lowercase().pattern(regex.address).allow(null),
               validFrom: Joi.number().unsafe().allow(null),
               validUntil: Joi.number().unsafe().allow(null),
-              source: Joi.object().allow(null),
+              source: JoiSource.allow(null),
               feeBreakdown: Joi.array()
                 .items(
                   Joi.object({
@@ -1300,13 +1302,7 @@ export const getTokensV6Options: RouteOptions = {
                   ? r.floor_sell_quantity_remaining
                   : undefined,
               dynamicPricing,
-              source: {
-                id: floorSellSource?.address,
-                domain: floorSellSource?.domain,
-                name: floorSellSource?.getTitle(),
-                icon: floorSellSource?.getIcon(),
-                url: floorSellSource?.metadata.url,
-              },
+              source: getJoiSourceObject(floorSellSource),
             },
             topBid: query.includeTopBid
               ? {
@@ -1334,13 +1330,7 @@ export const getTokensV6Options: RouteOptions = {
                   maker: r.top_buy_maker ? fromBuffer(r.top_buy_maker) : null,
                   validFrom: r.top_buy_valid_from,
                   validUntil: r.top_buy_value ? r.top_buy_valid_until : null,
-                  source: {
-                    id: topBuySource?.address,
-                    domain: topBuySource?.domain,
-                    name: topBuySource?.getTitle(),
-                    icon: topBuySource?.getIcon(),
-                    url: topBuySource?.metadata.url,
-                  },
+                  source: getJoiSourceObject(topBuySource),
                   feeBreakdown: feeBreakdown,
                 }
               : undefined,
