@@ -96,16 +96,6 @@ export class Collections {
   }
 
   public static async updateCollectionCache(contract: string, tokenId: string, community = "") {
-    if (contract === "0x495f947276749ce646f68ac8c248420045cb7b5e") {
-      logger.info(
-        "updateCollectionCache",
-        JSON.stringify({
-          topic: "post-refresh-collection",
-          message: `Start. contract=${contract}, tokenId=${tokenId}`,
-        })
-      );
-    }
-
     try {
       await Contracts.updateContractMetadata(contract);
     } catch (error) {
@@ -131,7 +121,7 @@ export class Collections {
       }
     );
 
-    if (!collectionResult.id) {
+    if (!collectionResult?.id) {
       // If the collection doesn't exist, push a job to retrieve it
       await fetchCollectionMetadataJob.addToQueue([
         {
@@ -158,17 +148,6 @@ export class Collections {
       tokenId,
       community
     );
-
-    if (contract === "0x495f947276749ce646f68ac8c248420045cb7b5e") {
-      logger.info(
-        "updateCollectionCache",
-        JSON.stringify({
-          topic: "post-refresh-collection",
-          message: `getCollectionMetadata. contract=${contract}, tokenId=${tokenId}`,
-          collection,
-        })
-      );
-    }
 
     if (collection.isCopyrightInfringement) {
       collection.name = collection.id;
@@ -237,17 +216,6 @@ export class Collections {
     };
 
     const result = await idb.oneOrNone(query, values);
-
-    if (contract === "0x495f947276749ce646f68ac8c248420045cb7b5e") {
-      logger.info(
-        "updateCollectionCache",
-        JSON.stringify({
-          topic: "post-refresh-collection",
-          message: `collectionUpdated. contract=${contract}, tokenId=${tokenId}`,
-          collection,
-        })
-      );
-    }
 
     try {
       if (
