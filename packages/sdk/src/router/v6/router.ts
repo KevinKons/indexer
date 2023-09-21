@@ -281,6 +281,9 @@ export class Router {
           data: d.txData.data,
           value: d.txData.value ?? 0,
           fees: d.fees ?? [],
+          token: d.token,
+          quantity: d.quantity,
+          comment: d.comment ?? "",
         })),
         {
           refundTo: taker,
