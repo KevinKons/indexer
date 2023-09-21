@@ -2,7 +2,7 @@ import { idb, pgp, PgPromiseQuery } from "@/common/db";
 import { toBuffer } from "@/common/utils";
 import { AbstractRabbitMqJobHandler, BackoffStrategy } from "@/jobs/abstract-rabbit-mq-job-handler";
 import { logger } from "@/common/logger";
-import MetadataApi from "@/utils/metadata-api";
+import MetadataProviderRouter from "@/metadata/metadata-provider-router";
 import { recalcTokenCountQueueJob } from "@/jobs/collection-updates/recalc-token-count-queue-job";
 import { recalcOwnerCountQueueJob } from "@/jobs/collection-updates/recalc-owner-count-queue-job";
 import { config } from "@/config/index";
@@ -46,15 +46,25 @@ export class NewCollectionForTokenJob extends AbstractRabbitMqJobHandler {
       // If collection not found in the DB
       if (!collection) {
         // Fetch collection metadata
-        let collectionMetadata = await MetadataApi.getCollectionMetadata(contract, tokenId, "", {
-          allowFallback: true,
-        });
+        let collectionMetadata = await MetadataProviderRouter.getCollectionMetadata(
+          contract,
+          tokenId,
+          "",
+          {
+            allowFallback: true,
+          }
+        );
 
         if (collectionMetadata?.isFallback) {
-          collectionMetadata = await MetadataApi.getCollectionMetadata(contract, tokenId, "", {
-            allowFallback: false,
-            indexingMethod: "simplehash",
-          });
+          collectionMetadata = await MetadataProviderRouter.getCollectionMetadata(
+            contract,
+            tokenId,
+            "",
+            {
+              allowFallback: false,
+              indexingMethod: "simplehash",
+            }
+          );
         }
 
         let tokenIdRange: string | null = null;
