@@ -69,11 +69,13 @@ export const getTokensV6Options: RouteOptions = {
           then: Joi.forbidden(),
           otherwise: Joi.allow(),
         }),
-      contract: Joi.string()
-        .lowercase()
-        .pattern(regex.address)
+      contract: Joi.alternatives()
+        .try(
+          Joi.array().items(Joi.string().lowercase().pattern(regex.address)).max(20),
+          Joi.string().lowercase().pattern(regex.address)
+        )
         .description(
-          "Filter to a particular contract. Example: `0x8d04a8c79ceb0889bdd12acdf3fa9d207ed3ff63`"
+          "Array of contracts. Max amount is 20. Example: `0x8d04a8c79ceb0889bdd12acdf3fa9d207ed3ff63`"
         )
         .when("flagStatus", {
           is: Joi.exist(),
@@ -164,9 +166,31 @@ export const getTokensV6Options: RouteOptions = {
       limit: Joi.number()
         .integer()
         .min(1)
-        .max(100)
+        .when("sortBy", {
+          is: "updatedAt",
+          then: Joi.number().integer().max(1000),
+          otherwise: Joi.number().integer().max(100),
+        })
         .default(20)
-        .description("Amount of items returned in response. Max limit is 100."),
+        .description(
+          "Amount of items returned in response. Max limit is 100, except when sorting by `updatedAt` which has a limit of 1000."
+        ),
+      startTimestamp: Joi.number()
+        .when("sortBy", {
+          is: "updatedAt",
+          then: Joi.allow(),
+          otherwise: Joi.forbidden(),
+        })
+        .description(
+          "When sorting by `updatedAt`, the start timestamp you want to filter on (UTC)."
+        ),
+      endTimestamp: Joi.number()
+        .when("sortBy", {
+          is: "updatedAt",
+          then: Joi.allow(),
+          otherwise: Joi.forbidden(),
+        })
+        .description("When sorting by `updatedAt`, the end timestamp you want to filter on (UTC)."),
       includeTopBid: Joi.boolean()
         .default(false)
         .description("If true, top bid will be returned in the response."),
@@ -204,7 +228,18 @@ export const getTokensV6Options: RouteOptions = {
           "Input any ERC20 address to return result in given currency. Applies to `topBid` and `floorAsk`."
         ),
     })
-      .or("collection", "contract", "tokens", "tokenSetId", "community", "collectionsSetId")
+      .when(".sortBy", {
+        is: "updatedAt",
+        then: undefined,
+        otherwise: Joi.object().or(
+          "collection",
+          "contract",
+          "tokens",
+          "tokenSetId",
+          "community",
+          "collectionsSetId"
+        ),
+      })
       .oxor("collection", "contract", "tokens", "tokenSetId", "community", "collectionsSetId")
       .oxor("source", "nativeSource")
       .with("attributes", "collection")
@@ -480,7 +515,7 @@ export const getTokensV6Options: RouteOptions = {
 
       // Retrieve the contract from the different filters options
       if (query.contract) {
-        sourceConditions.push(`contract = $/contract/`);
+        sourceConditions.push(`contract IN ($/contract:csv/)`);
       } else if (query.collection) {
         let contractString = query.collection;
         if (query.collection.includes(":")) {
@@ -671,8 +706,11 @@ export const getTokensV6Options: RouteOptions = {
       }
 
       if (query.contract) {
-        (query as any).contract = toBuffer(query.contract);
-        conditions.push(`t.contract = $/contract/`);
+        if (!Array.isArray(query.contract)) {
+          query.contract = [query.contract];
+        }
+        query.contract = query.contract.map((contract: string) => toBuffer(contract));
+        conditions.push(`t.contract IN ($/contract:csv/)`);
       }
 
       if (query.minRarityRank) {
@@ -710,6 +748,14 @@ export const getTokensV6Options: RouteOptions = {
 
         (query as any).source = source?.id;
         conditions.push(`t.floor_sell_source_id_int = $/source/`);
+      }
+
+      if (query.startTimestamp) {
+        conditions.push(`t.updated_at >= to_timestamp($/startTimestamp/)`);
+      }
+
+      if (query.endTimestamp) {
+        conditions.push(`t.updated_at <= to_timestamp($/endTimestamp/)`);
       }
 
       if (query.tokens) {
@@ -786,7 +832,8 @@ export const getTokensV6Options: RouteOptions = {
           query.attributes ||
           query.tokenSetId ||
           query.collectionsSetId ||
-          query.tokens
+          query.tokens ||
+          query.sortBy === "updatedAt"
         ) {
           switch (query.sortBy) {
             case "rarity": {
@@ -896,9 +943,11 @@ export const getTokensV6Options: RouteOptions = {
             }`;
           }
           case "updatedAt": {
-            return ` ORDER BY t_updated_at ${query.sortDirection || "ASC"}, t_contract ${
+            return ` ORDER BY ${union ? "t_" : "t."}updated_at ${
               query.sortDirection || "ASC"
-            }, t_token_id ${query.sortDirection || "ASC"}`;
+            }, t_contract ${query.sortDirection || "ASC"}, t_token_id ${
+              query.sortDirection || "ASC"
+            }`;
           }
           case "floorAskPrice":
           default: {
@@ -926,7 +975,8 @@ export const getTokensV6Options: RouteOptions = {
         query.tokenSetId ||
         query.rarity ||
         (query.collectionsSetId && collections.length > 20) ||
-        query.tokens
+        query.tokens ||
+        query.sortBy === "updatedAt"
       ) {
         baseQuery += getSort(query.sortBy, false);
       }
@@ -1035,7 +1085,8 @@ export const getTokensV6Options: RouteOptions = {
           query.attributes ||
           query.tokenSetId ||
           query.collectionsSetId ||
-          query.tokens
+          query.tokens ||
+          query.sortBy === "updatedAt"
         ) {
           switch (query.sortBy) {
             case "rarity":
