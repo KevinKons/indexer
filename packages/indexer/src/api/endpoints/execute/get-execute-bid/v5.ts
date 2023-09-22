@@ -421,6 +421,11 @@ export const getExecuteBidV5Options: RouteOptions = {
             steps[0].items.push({
               status: "complete",
             });
+            steps[1].items.push({
+              status: "complete",
+              // Hacky fix for: https://github.com/reservoirprotocol/reservoir-kit/pull/391
+              data: {},
+            });
           }
         }
       }
@@ -502,6 +507,11 @@ export const getExecuteBidV5Options: RouteOptions = {
         } else {
           steps[0].items.push({
             status: "complete",
+          });
+          steps[1].items.push({
+            status: "complete",
+            // Hacky fix for: https://github.com/reservoirprotocol/reservoir-kit/pull/391
+            data: {},
           });
         }
       }
