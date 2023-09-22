@@ -1536,6 +1536,11 @@ export const getExecuteBuyV7Options: RouteOptions = {
         steps[0].items.push({
           status: "complete",
         });
+        // So the client doesn't error
+        steps[1].items.push({
+          status: "complete",
+          data: {},
+        });
       }
 
       const router = new Sdk.RouterV6.Router(config.chainId, baseProvider, {
@@ -1833,7 +1838,14 @@ export const getExecuteBuyV7Options: RouteOptions = {
       // won't affect the client, which might be polling the API and
       // expect to get the steps returned in the same order / at the
       // same index.
-      if (buyInCurrency === Sdk.Common.Addresses.Native[config.chainId]) {
+
+      // We only filter the "currency-approval" step when there are no
+      // auth transactions to be made otherwise due to how clients are
+      // setup they might run into errors
+      if (
+        buyInCurrency === Sdk.Common.Addresses.Native[config.chainId] &&
+        !unverifiedERC721CTransferValidators.length
+      ) {
         // Buying in ETH will never require an approval
         steps = steps.filter((s) => s.id !== "currency-approval");
       }
