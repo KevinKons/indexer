@@ -167,6 +167,8 @@ export const AlienswapModule: ChainIdToAddress = {
   [Network.BaseGoerli]: "0x527534529577b57548a1dbc0d7fb0088705a1965",
   [Network.Base]: "0x25210757f799423c908e4dbf8141dd10d51afbc6",
   [Network.EthereumSepolia]: "0x54e9b4580f8c180e8020cec7a330f189658e1329",
+  [Network.Arbitrum]: "0x670ec3e840816c81fb8567c9a5368ab55f3d796a",
+  [Network.Optimism]: "0x670ec3e840816c81fb8567c9a5368ab55f3d796a",
 };
 
 export const SudoswapModule: ChainIdToAddress = {
@@ -211,8 +213,8 @@ export const NFTXZeroExModule: ChainIdToAddress = {
 };
 
 export const RaribleModule: ChainIdToAddress = {
-  [Network.Ethereum]: "0x428a6be88fc0d25778e3c3f6e09fcfdc9a526fad",
-  [Network.EthereumGoerli]: "0x428a6be88fc0d25778e3c3f6e09fcfdc9a526fad",
+  [Network.Ethereum]: "0x0ac4aa4e2b50b9a1638c046f2564a6552427d9e4",
+  [Network.EthereumGoerli]: "0x0ac4aa4e2b50b9a1638c046f2564a6552427d9e4",
 };
 
 export const SuperRareModule: ChainIdToAddress = {
