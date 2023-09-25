@@ -24,6 +24,7 @@ const version = "v2";
 
 export const getTopSellingCollectionsV2Options: RouteOptions = {
   cache: {
+    expiresIn: 60 * 1000,
     privacy: "public",
   },
   description: "Top Selling Collections",
