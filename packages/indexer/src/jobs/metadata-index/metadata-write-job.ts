@@ -12,8 +12,8 @@ import { resyncAttributeKeyCountsJob } from "@/jobs/update-attribute/resync-attr
 import { resyncAttributeValueCountsJob } from "@/jobs/update-attribute/resync-attribute-value-counts-job";
 import { rarityQueueJob } from "@/jobs/collection-updates/rarity-queue-job";
 import { resyncAttributeCountsJob } from "@/jobs/update-attribute/update-attribute-counts-job";
-import { newCollectionForTokenJob } from "@/jobs/token-updates/new-collection-for-token-job";
 import { TokenMetadata } from "@/metadata/types";
+import { newCollectionForTokenJob } from "@/jobs/token-updates/new-collection-for-token-job";
 
 export type MetadataIndexWriteJobPayload = {
   collection: string;
@@ -145,6 +145,7 @@ export class MetadataIndexWriteJob extends AbstractRabbitMqJobHandler {
 
     // If the new collection ID is different from the collection ID currently stored
     if (
+      !isFromWebhook &&
       result.collection_id !=
         "0x495f947276749ce646f68ac8c248420045cb7b5e:opensea-os-shared-storefront-collection" &&
       result.collection_id != collection
@@ -161,6 +162,7 @@ export class MetadataIndexWriteJob extends AbstractRabbitMqJobHandler {
             contract,
             tokenId,
             mintedTimestamp: getUnixTime(new Date(result.created_at)),
+            newCollectionId: collection,
             oldCollectionId: result.collection_id,
           },
         ],
