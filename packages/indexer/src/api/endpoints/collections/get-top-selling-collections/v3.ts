@@ -141,10 +141,25 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
         });
       }
 
-      let floorAskSelectQuery;
+      const collectionIds = collectionsResult.map((collection: any) => collection.id);
+      const collectionsToFetch = collectionIds.map((id: string) => `collectionCache:v1:${id}`);
 
-      if (normalizeRoyalties) {
-        floorAskSelectQuery = `
+      const collectionMetadataCache = await redis
+        .mget(collectionsToFetch)
+        .then((results) =>
+          results.filter((result) => !!result).map((result: any) => JSON.parse(result))
+        );
+
+      const collectionsToFetchFromDb = collectionIds.filter((id: string) => {
+        return !collectionMetadataCache.find((cache: any) => cache.id === id);
+      });
+
+      let collectionMetadataResponse: any = [];
+      if (collectionsToFetchFromDb.length > 0) {
+        let floorAskSelectQuery;
+
+        if (normalizeRoyalties) {
+          floorAskSelectQuery = `
             collections.normalized_floor_sell_id AS floor_sell_id,
             collections.normalized_floor_sell_value AS floor_sell_value,
             collections.normalized_floor_sell_maker AS floor_sell_maker,
@@ -152,8 +167,8 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.normalized_floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.normalized_floor_sell_source_id_int AS floor_sell_source_id_int
             `;
-      } else if (useNonFlaggedFloorAsk) {
-        floorAskSelectQuery = `
+        } else if (useNonFlaggedFloorAsk) {
+          floorAskSelectQuery = `
             collections.non_flagged_floor_sell_id AS floor_sell_id,
             collections.non_flagged_floor_sell_value AS floor_sell_value,
             collections.non_flagged_floor_sell_maker AS floor_sell_maker,
@@ -161,8 +176,8 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.non_flagged_floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.non_flagged_floor_sell_source_id_int AS floor_sell_source_id_int
             `;
-      } else {
-        floorAskSelectQuery = `
+        } else {
+          floorAskSelectQuery = `
             collections.floor_sell_id,
             collections.floor_sell_value,
             collections.floor_sell_maker,
@@ -170,13 +185,11 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.floor_sell_source_id_int
       `;
-      }
+        }
 
-      const collectionIds = collectionsResult
-        .map((collection: any) => `'${collection.id}'`)
-        .join(", ");
+        const collectionIdList = collectionsToFetchFromDb.map((id: string) => `'${id}'`).join(", ");
 
-      const baseQuery = `
+        const baseQuery = `
         SELECT
           collections.id,
           collections.name,
@@ -186,22 +199,30 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
           collections.day1_volume_change,
           collections.day7_volume_change,
           collections.day30_volume_change,
-          (collections.metadata ->> 'imageUrl')::TEXT AS "image",
+          (collections.metadata ->> 'imageUrl')::TEXT,
           (collections.metadata ->> 'bannerImageUrl')::TEXT AS "banner",
           (collections.metadata ->> 'description')::TEXT AS "description",
           ${floorAskSelectQuery}
         FROM collections
-        WHERE collections.id IN (${collectionIds})
+        WHERE collections.id IN (${collectionIdList})
       `;
 
-      const collectionMetadataResponse = await redb.manyOrNone(baseQuery, request.query);
+        collectionMetadataResponse = await redb.manyOrNone(baseQuery);
+
+        const redisMulti = redis.multi();
+
+        for (const metadata of collectionMetadataResponse) {
+          redisMulti.set(`collectionCache:v1:${metadata.id}`, JSON.stringify(metadata));
+
+          redisMulti.expire(`collectionCache:v1:${metadata.id}`, 60 * 60 * 24);
+        }
+        await redisMulti.exec();
+      }
 
       const collectionsMetadata: Record<string, any> = {};
-      if (collectionMetadataResponse && Array.isArray(collectionMetadataResponse)) {
-        collectionMetadataResponse.forEach((metadata: any) => {
-          collectionsMetadata[metadata.id] = metadata;
-        });
-      }
+      [...collectionMetadataResponse, ...collectionMetadataCache].forEach((metadata: any) => {
+        collectionsMetadata[metadata.id] = metadata;
+      });
       const sources = await Sources.getInstance();
 
       const collections = await Promise.all(
@@ -231,6 +252,7 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
 
           return {
             ...response,
+            image: metadata.imageUrl,
             volumeChange: {
               "1day": metadata.day1_volume_change,
               "7day": metadata.day7_volume_change,

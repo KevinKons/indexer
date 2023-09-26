@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { KafkaEventHandler } from "./KafkaEventHandler";
+import { redis } from "@/common/redis";
 import {
   WebsocketEventKind,
   WebsocketEventRouter,
@@ -36,6 +37,14 @@ export class IndexerCollectionsHandler extends KafkaEventHandler {
       },
       eventKind: WebsocketEventKind.CollectionEvent,
     });
+
+    await redis.set(
+      `collectionCache:v1:${payload.after.id}`,
+      JSON.stringify(payload.after),
+      "EX",
+      60 * 60 * 24,
+      "XX"
+    );
   }
 
   protected async handleDelete(): Promise<void> {
