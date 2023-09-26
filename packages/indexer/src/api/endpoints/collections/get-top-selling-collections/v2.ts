@@ -4,7 +4,7 @@ import { Request, RouteOptions } from "@hapi/hapi";
 import _ from "lodash";
 import Joi from "joi";
 import { logger } from "@/common/logger";
-import { fromBuffer, regex, toBuffer } from "@/common/utils";
+import { fromBuffer, regex } from "@/common/utils";
 import { redb } from "@/common/db";
 import * as Sdk from "@reservoir0x/sdk";
 import { config } from "@/config/index";
@@ -13,7 +13,7 @@ import { getStartTime } from "@/models/top-selling-collections/top-selling-colle
 import { redis } from "@/common/redis";
 
 import {
-  getTopSellingCollections,
+  getTopSellingCollectionsV2 as getTopSellingCollections,
   TopSellingFillOptions,
 } from "@/elasticsearch/indexes/activities";
 
@@ -38,7 +38,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
   validate: {
     query: Joi.object({
       period: Joi.string()
-        .valid("5m", "10m", "30m", "1h", "6h", "1d", "24h")
+        .valid("5m", "10m", "30m", "1h", "6h", "1d", "24h", "7d", "30d")
         .default("1d")
         .description("Time window to aggregate."),
       fillType: Joi.string()
@@ -49,15 +49,13 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
 
       limit: Joi.number()
         .integer()
-        .min(1)
-        .max(50)
-        .default(25)
+        .min(25)
+        .max(1000)
+        .multiple(25)
+        .default(1000)
         .description("Amount of items returned in response. Default is 25 and max is 50"),
       sortBy: Joi.string().valid("volume", "sales").default("sales"),
 
-      includeRecentSales: Joi.boolean()
-        .default(false)
-        .description("If true, 8 recent sales will be included in the response"),
       normalizeRoyalties: Joi.boolean()
         .default(false)
         .description("If true, prices will include missing royalties to be added on-top."),
@@ -140,14 +138,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
     },
   },
   handler: async (request: Request, h) => {
-    const {
-      fillType,
-      limit,
-      sortBy,
-      includeRecentSales,
-      normalizeRoyalties,
-      useNonFlaggedFloorAsk,
-    } = request.query;
+    const { fillType, limit, sortBy, normalizeRoyalties, useNonFlaggedFloorAsk } = request.query;
 
     try {
       let collectionsResult = [];
@@ -159,10 +150,6 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
 
       if (cachedResults) {
         collectionsResult = JSON.parse(cachedResults).slice(0, limit);
-        logger.info(
-          "get-top-selling-collections-v2-cache-hit",
-          `Using cached results for ${cacheKey}`
-        );
       } else {
         const startTime = getStartTime(period);
 
@@ -170,14 +157,8 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
           startTime,
           fillType,
           limit,
-          includeRecentSales,
           sortBy,
         });
-
-        logger.info(
-          "get-top-selling-collections-v2-cache-miss",
-          `No cached results for ${cacheKey}`
-        );
       }
 
       let floorAskSelectQuery;
@@ -211,71 +192,41 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
       `;
       }
 
-      request.query.contract = collectionsResult.map((collection: any) =>
-        toBuffer(collection.primaryContract)
-      );
+      const collectionIds = collectionsResult
+        .map((collection: any) => `'${collection.id}'`)
+        .join(", ");
 
       const baseQuery = `
         SELECT
           collections.id,
+          collections.name,
           collections.contract,
           collections.token_count,
           collections.owner_count,
           collections.day1_volume_change,
           collections.day7_volume_change,
           collections.day30_volume_change,
+          (collections.metadata ->> 'imageUrl')::TEXT AS "image",
           (collections.metadata ->> 'bannerImageUrl')::TEXT AS "banner",
           (collections.metadata ->> 'description')::TEXT AS "description",
           ${floorAskSelectQuery}
-          FROM collections
-          WHERE collections.contract IN ($/contract:csv/)
+        FROM collections
+        WHERE collections.id IN (${collectionIds})
       `;
 
-      const resultsPromise = redb.manyOrNone(baseQuery, request.query);
-      const recentSalesPromise = collectionsResult.map(async (collection: any) => {
-        return {
-          ...collection,
-          recentSales: includeRecentSales
-            ? await Promise.all(
-                collection.recentSales.map(async (sale: any) => {
-                  const { pricing, ...salesData } = sale;
-                  const price = pricing
-                    ? await getJoiPriceObject(
-                        {
-                          gross: {
-                            amount: String(pricing?.currencyPrice ?? pricing?.price ?? 0),
-                            nativeAmount: String(pricing?.price ?? 0),
-                            usdAmount: String(pricing.usdPrice ?? 0),
-                          },
-                        },
-                        pricing.currency
-                      )
-                    : null;
+      const collectionMetadataResponse = await redb.manyOrNone(baseQuery, request.query);
 
-                  return {
-                    ...salesData,
-                    price,
-                  };
-                })
-              )
-            : [],
-        };
-      });
-
-      const responses = await Promise.all([resultsPromise, ...recentSalesPromise]);
-
-      const collectionMetadataResponse = responses.shift();
       const collectionsMetadata: Record<string, any> = {};
       if (collectionMetadataResponse && Array.isArray(collectionMetadataResponse)) {
         collectionMetadataResponse.forEach((metadata: any) => {
-          collectionsMetadata[fromBuffer(metadata.contract)] = metadata;
+          collectionsMetadata[metadata.id] = metadata;
         });
       }
       const sources = await Sources.getInstance();
 
       const collections = await Promise.all(
-        responses.map(async (response: any) => {
-          const metadata = collectionsMetadata[(response as any).primaryContract] || {};
+        collectionsResult.map(async (response: any) => {
+          const metadata = collectionsMetadata[response.id] || {};
           let floorAsk;
           if (metadata) {
             const floorAskCurrency = metadata.floor_sell_currency
@@ -313,6 +264,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
           };
         })
       );
+
       const response = h.response({ collections });
       return response;
     } catch (error) {
