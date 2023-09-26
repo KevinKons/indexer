@@ -49,9 +49,8 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
 
       limit: Joi.number()
         .integer()
-        .min(25)
+        .min(1)
         .max(1000)
-        .multiple(25)
         .default(1000)
         .description("Amount of items returned in response. Default is 25 and max is 50"),
       sortBy: Joi.string().valid("volume", "sales").default("sales"),
