@@ -4,7 +4,7 @@ import { Request, RouteOptions } from "@hapi/hapi";
 import _ from "lodash";
 import Joi from "joi";
 import { logger } from "@/common/logger";
-import { fromBuffer, regex, toBuffer } from "@/common/utils";
+import { fromBuffer, regex } from "@/common/utils";
 import { redb } from "@/common/db";
 import * as Sdk from "@reservoir0x/sdk";
 import { config } from "@/config/index";
@@ -13,16 +13,16 @@ import { getStartTime } from "@/models/top-selling-collections/top-selling-colle
 import { redis } from "@/common/redis";
 
 import {
-  getTopSellingCollections,
+  getTopSellingCollectionsV2 as getTopSellingCollections,
   TopSellingFillOptions,
 } from "@/elasticsearch/indexes/activities";
 
 import { getJoiPriceObject, JoiPrice } from "@/common/joi";
 import { Sources } from "@/models/sources";
 
-const version = "v2";
+const version = "v3";
 
-export const getTopSellingCollectionsV2Options: RouteOptions = {
+export const getTopSellingCollectionsV3Options: RouteOptions = {
   cache: {
     expiresIn: 60 * 1000,
     privacy: "public",
@@ -38,7 +38,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
   validate: {
     query: Joi.object({
       period: Joi.string()
-        .valid("5m", "10m", "30m", "1h", "6h", "1d", "24h")
+        .valid("5m", "10m", "30m", "1h", "6h", "1d", "24h", "7d", "30d")
         .default("1d")
         .description("Time window to aggregate."),
       fillType: Joi.string()
@@ -50,14 +50,11 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
       limit: Joi.number()
         .integer()
         .min(1)
-        .max(50)
-        .default(25)
+        .max(1000)
+        .default(1000)
         .description("Amount of items returned in response. Default is 25 and max is 50"),
       sortBy: Joi.string().valid("volume", "sales").default("sales"),
 
-      includeRecentSales: Joi.boolean()
-        .default(false)
-        .description("If true, 8 recent sales will be included in the response"),
       normalizeRoyalties: Joi.boolean()
         .default(false)
         .description("If true, prices will include missing royalties to be added on-top."),
@@ -109,25 +106,6 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
           }).description(
             "Total volume change X-days vs previous X-days. (e.g. 7day [days 1-7] vs 7day prior [days 8-14]). A value over 1 is a positive gain, under 1 is a negative loss. e.g. 1 means no change; 1.1 means 10% increase; 0.9 means 10% decrease."
           ),
-          recentSales: Joi.array().items(
-            Joi.object({
-              contract: Joi.string(),
-              type: Joi.string(),
-              timestamp: Joi.number(),
-              toAddress: Joi.string(),
-              price: JoiPrice.allow(null),
-              collection: Joi.object({
-                name: Joi.string().allow("", null),
-                image: Joi.string().allow("", null),
-                id: Joi.string(),
-              }),
-              token: Joi.object({
-                name: Joi.string().allow("", null),
-                image: Joi.string().allow("", null),
-                id: Joi.string(),
-              }),
-            })
-          ),
         })
       ),
     }).label(`getTopSellingCollections${version.toUpperCase()}Response`),
@@ -140,18 +118,11 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
     },
   },
   handler: async (request: Request, h) => {
-    const {
-      fillType,
-      limit,
-      sortBy,
-      includeRecentSales,
-      normalizeRoyalties,
-      useNonFlaggedFloorAsk,
-    } = request.query;
+    const { fillType, limit, sortBy, normalizeRoyalties, useNonFlaggedFloorAsk } = request.query;
 
     try {
       let collectionsResult = [];
-      const period = request.query.period === "24hr" ? "1d" : request.query.period;
+      const period = request.query.period === "24h" ? "1d" : request.query.period;
 
       const cacheKey = `topSellingCollections:v2:${period}:${fillType}:${sortBy}`;
 
@@ -166,15 +137,38 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
           startTime,
           fillType,
           limit,
-          includeRecentSales,
           sortBy,
         });
       }
 
-      let floorAskSelectQuery;
+      const collectionIds = collectionsResult.map((collection: any) => collection.id);
+      const collectionsToFetch = collectionIds.map((id: string) => `collectionCache:v1:${id}`);
 
-      if (normalizeRoyalties) {
-        floorAskSelectQuery = `
+      const collectionMetadataCache = await redis
+        .mget(collectionsToFetch)
+        .then((results) =>
+          results.filter((result) => !!result).map((result: any) => JSON.parse(result))
+        );
+
+      logger.info(
+        "top-selling-collections",
+        `using ${collectionMetadataCache.length} collections from cache`
+      );
+
+      const collectionsToFetchFromDb = collectionIds.filter((id: string) => {
+        return !collectionMetadataCache.find((cache: any) => cache.id === id);
+      });
+
+      let collectionMetadataResponse: any = [];
+      if (collectionsToFetchFromDb.length > 0) {
+        logger.info(
+          "top-selling-collections",
+          `Fetching ${collectionsToFetchFromDb.length} collections from DB`
+        );
+        let floorAskSelectQuery;
+
+        if (normalizeRoyalties) {
+          floorAskSelectQuery = `
             collections.normalized_floor_sell_id AS floor_sell_id,
             collections.normalized_floor_sell_value AS floor_sell_value,
             collections.normalized_floor_sell_maker AS floor_sell_maker,
@@ -182,8 +176,8 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.normalized_floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.normalized_floor_sell_source_id_int AS floor_sell_source_id_int
             `;
-      } else if (useNonFlaggedFloorAsk) {
-        floorAskSelectQuery = `
+        } else if (useNonFlaggedFloorAsk) {
+          floorAskSelectQuery = `
             collections.non_flagged_floor_sell_id AS floor_sell_id,
             collections.non_flagged_floor_sell_value AS floor_sell_value,
             collections.non_flagged_floor_sell_maker AS floor_sell_maker,
@@ -191,8 +185,8 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.non_flagged_floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.non_flagged_floor_sell_source_id_int AS floor_sell_source_id_int
             `;
-      } else {
-        floorAskSelectQuery = `
+        } else {
+          floorAskSelectQuery = `
             collections.floor_sell_id,
             collections.floor_sell_value,
             collections.floor_sell_maker,
@@ -200,73 +194,49 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
             least(2147483647::NUMERIC, coalesce(nullif(date_part('epoch', upper(collections.floor_sell_valid_between)), 'Infinity'),0))::INT AS floor_sell_valid_until,
             collections.floor_sell_source_id_int
       `;
-      }
+        }
 
-      request.query.contract = collectionsResult.map((collection: any) =>
-        toBuffer(collection.primaryContract)
-      );
+        const collectionIdList = collectionsToFetchFromDb.map((id: string) => `'${id}'`).join(", ");
 
-      const baseQuery = `
+        const baseQuery = `
         SELECT
           collections.id,
+          collections.name,
           collections.contract,
           collections.token_count,
           collections.owner_count,
           collections.day1_volume_change,
           collections.day7_volume_change,
           collections.day30_volume_change,
+          (collections.metadata ->> 'imageUrl')::TEXT,
           (collections.metadata ->> 'bannerImageUrl')::TEXT AS "banner",
           (collections.metadata ->> 'description')::TEXT AS "description",
           ${floorAskSelectQuery}
-          FROM collections
-          WHERE collections.contract IN ($/contract:csv/)
+        FROM collections
+        WHERE collections.id IN (${collectionIdList})
       `;
 
-      const resultsPromise = redb.manyOrNone(baseQuery, request.query);
-      const recentSalesPromise = collectionsResult.map(async (collection: any) => {
-        return {
-          ...collection,
-          recentSales: includeRecentSales
-            ? await Promise.all(
-                collection.recentSales.map(async (sale: any) => {
-                  const { pricing, ...salesData } = sale;
-                  const price = pricing
-                    ? await getJoiPriceObject(
-                        {
-                          gross: {
-                            amount: String(pricing?.currencyPrice ?? pricing?.price ?? 0),
-                            nativeAmount: String(pricing?.price ?? 0),
-                            usdAmount: String(pricing.usdPrice ?? 0),
-                          },
-                        },
-                        pricing.currency
-                      )
-                    : null;
+        collectionMetadataResponse = await redb.manyOrNone(baseQuery);
 
-                  return {
-                    ...salesData,
-                    price,
-                  };
-                })
-              )
-            : [],
-        };
-      });
+        const redisMulti = redis.multi();
 
-      const responses = await Promise.all([resultsPromise, ...recentSalesPromise]);
+        for (const metadata of collectionMetadataResponse) {
+          redisMulti.set(`collectionCache:v1:${metadata.id}`, JSON.stringify(metadata));
 
-      const collectionMetadataResponse = responses.shift();
-      const collectionsMetadata: Record<string, any> = {};
-      if (collectionMetadataResponse && Array.isArray(collectionMetadataResponse)) {
-        collectionMetadataResponse.forEach((metadata: any) => {
-          collectionsMetadata[fromBuffer(metadata.contract)] = metadata;
-        });
+          redisMulti.expire(`collectionCache:v1:${metadata.id}`, 60 * 60 * 24);
+        }
+        await redisMulti.exec();
       }
+
+      const collectionsMetadata: Record<string, any> = {};
+      [...collectionMetadataResponse, ...collectionMetadataCache].forEach((metadata: any) => {
+        collectionsMetadata[metadata.id] = metadata;
+      });
       const sources = await Sources.getInstance();
 
       const collections = await Promise.all(
-        responses.map(async (response: any) => {
-          const metadata = collectionsMetadata[(response as any).primaryContract] || {};
+        collectionsResult.map(async (response: any) => {
+          const metadata = collectionsMetadata[response.id] || {};
           let floorAsk;
           if (metadata) {
             const floorAskCurrency = metadata.floor_sell_currency
@@ -291,6 +261,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
 
           return {
             ...response,
+            image: metadata.imageUrl,
             volumeChange: {
               "1day": metadata.day1_volume_change,
               "7day": metadata.day7_volume_change,
@@ -304,6 +275,7 @@ export const getTopSellingCollectionsV2Options: RouteOptions = {
           };
         })
       );
+
       const response = h.response({ collections });
       return response;
     } catch (error) {
