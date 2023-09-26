@@ -150,12 +150,21 @@ export const getTopSellingCollectionsV3Options: RouteOptions = {
           results.filter((result) => !!result).map((result: any) => JSON.parse(result))
         );
 
+      logger.info(
+        "top-selling-collections",
+        `using ${collectionMetadataCache.length} collections from cache`
+      );
+
       const collectionsToFetchFromDb = collectionIds.filter((id: string) => {
         return !collectionMetadataCache.find((cache: any) => cache.id === id);
       });
 
       let collectionMetadataResponse: any = [];
       if (collectionsToFetchFromDb.length > 0) {
+        logger.info(
+          "top-selling-collections",
+          `Fetching ${collectionsToFetchFromDb.length} collections from DB`
+        );
         let floorAskSelectQuery;
 
         if (normalizeRoyalties) {
