@@ -186,19 +186,27 @@ export const getTransfersBulkV2Options: RouteOptions = {
             _.floor(Number(updateAt)) < query.startTimestamp ||
             _.floor(Number(updateAt)) > query.endTimestamp
           ) {
-            const msg = `Continuation updatedAt ${_.floor(Number(updateAt))} out fo range ${
+            const log = `Continuation updatedAt ${_.floor(Number(updateAt))} out fo range ${
               query.startTimestamp
             } - ${query.endTimestamp} request ${JSON.stringify(query)} x-api-key ${
               request.headers["x-api-key"]
             }`;
 
-            logger.info("transfers-bulk", msg);
-            throw Boom.badRequest(msg);
+            logger.info("transfers-bulk", log);
+            throw Boom.badRequest(
+              `Continuation updatedAt ${_.floor(Number(updateAt))} out fo range ${
+                query.startTimestamp
+              } - ${query.endTimestamp}`
+            );
           }
 
-          if (query.contract || query.token) {
+          if (query.token) {
             conditions.push(
               `(nft_transfer_events.address, nft_transfer_events.token_id, nft_transfer_events.updated_at, tx_hash, log_index, batch_index) ${sign} ($/address/, $/tokenId/, to_timestamp($/updatedAt/), $/txHash/, $/logIndex/, $/batchIndex/)`
+            );
+          } else if (query.contract) {
+            conditions.push(
+              `(nft_transfer_events.address, nft_transfer_events.updated_at, tx_hash, log_index, batch_index) ${sign} ($/address/, to_timestamp($/updatedAt/), $/txHash/, $/logIndex/, $/batchIndex/)`
             );
           } else {
             conditions.push(
@@ -237,7 +245,7 @@ export const getTransfersBulkV2Options: RouteOptions = {
           baseQuery += `
           ORDER BY
             nft_transfer_events.address ${query.sortDirection},
-            nft_transfer_events.token_id ${query.sortDirection},
+            ${query.token ? `nft_transfer_events.token_id ${query.sortDirection},` : ""}
             nft_transfer_events.updated_at ${query.sortDirection},
             nft_transfer_events.tx_hash ${query.sortDirection},
             nft_transfer_events.log_index ${query.sortDirection},
@@ -272,6 +280,19 @@ export const getTransfersBulkV2Options: RouteOptions = {
               rawResult[rawResult.length - 1].batch_index
           );
         } else if (query.sortBy == "updatedAt") {
+          if (
+            _.floor(Number(rawResult[rawResult.length - 1].updated_ts)) < query.startTimestamp ||
+            _.floor(Number(rawResult[rawResult.length - 1].updated_ts)) > query.endTimestamp
+          ) {
+            const log = `Returned continuation updatedAt ${_.floor(
+              Number(rawResult[rawResult.length - 1].updated_ts)
+            )} out fo range ${query.startTimestamp} - ${
+              query.endTimestamp
+            } last raw ${JSON.stringify(rawResult)} x-api-key ${request.headers["x-api-key"]}`;
+
+            logger.info("transfers-bulk", log);
+          }
+
           continuation = buildContinuation(
             rawResult[rawResult.length - 1].updated_ts +
               "_" +
