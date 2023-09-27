@@ -36,8 +36,6 @@ if (config.doBackgroundWork && config.doElasticsearchWork) {
       );
 
       if (results.length) {
-        const toBeDeletedActivityIds: string[] = [];
-
         for (const result of results) {
           const query = {
             bool: {
@@ -84,19 +82,17 @@ if (config.doBackgroundWork && config.doElasticsearchWork) {
 
           const activities = esResult.hits.hits.map((hit) => hit._source!);
 
-          logger.info(
-            QUEUE_NAME,
-            `Debug: activityId=${activities[0].id} txHash=${fromBuffer(result.tx_hash)} logIndex=${
-              result.log_index
-            } batchIndex=${result.batch_index}`
-          );
+          if (activities.length) {
+            logger.info(
+              QUEUE_NAME,
+              `Debug: activityId=${activities[0].id} txHash=${fromBuffer(
+                result.tx_hash
+              )} logIndex=${result.log_index} batchIndex=${result.batch_index}`
+            );
 
-          toBeDeletedActivityIds.push(activities[0].id);
+            await ActivitiesIndex.deleteActivitiesById([activities[0].id]);
+          }
         }
-
-        logger.info(QUEUE_NAME, `Debug2: toBeDeletedActivityIds=${toBeDeletedActivityIds.length}`);
-
-        await ActivitiesIndex.deleteActivitiesById(toBeDeletedActivityIds);
       }
     },
     { connection: redis.duplicate(), concurrency: 1 }
