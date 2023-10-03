@@ -3,7 +3,7 @@ import { config } from "@/config/index";
 import _ from "lodash";
 import { publishWebsocketEvent } from "@/common/websocketPublisher";
 import { idb } from "@/common/db";
-import { getJoiPriceObject, getJoiSourceObject } from "@/common/joi";
+import { getJoiPriceObject } from "@/common/joi";
 import { fromBuffer, toBuffer } from "@/common/utils";
 import { Assets } from "@/utils/assets";
 import * as Sdk from "@reservoir0x/sdk";
@@ -75,7 +75,7 @@ export class TokenWebsocketEventsTriggerJob extends AbstractRabbitMqJobHandler {
               json_build_object(
                 'key', ta.key,
                 'kind', attributes.kind,
-                'value', ta.value,
+                'value', ta.value
               )
             )
           FROM token_attributes ta
@@ -313,7 +313,7 @@ export class TokenWebsocketEventsTriggerJob extends AbstractRabbitMqJobHandler {
               json_build_object(
                 'key', ta.key,
                 'kind', attributes.kind,
-                'value', ta.value,
+                'value', ta.value
               )
             )
           FROM token_attributes ta
