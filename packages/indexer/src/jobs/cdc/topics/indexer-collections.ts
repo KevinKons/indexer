@@ -41,13 +41,7 @@ export class IndexerCollectionsHandler extends KafkaEventHandler {
     });
     logger.info("top-selling-collections", `updating collection ${payload.after.id}`);
 
-    await redis.set(
-      `collectionCache:v1:${payload.after.id}`,
-      JSON.stringify(payload.after),
-      "EX",
-      60 * 60 * 24,
-      "XX"
-    );
+    await redis.set(`collectionCache:v1:${payload.after.id}`, JSON.stringify(payload.after), "XX");
 
     logger.info("top-selling-collections", `updated collection ${payload.after.id}`);
   }

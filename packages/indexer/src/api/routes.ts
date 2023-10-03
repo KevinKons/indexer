@@ -522,8 +522,8 @@ export const setupRoutes = (server: Server) => {
 
   server.route({
     method: "GET",
-    path: "/collections/top-selling/v3",
-    options: collectionsEndpoints.getTopSellingCollectionsV3Options,
+    path: "/collections/trending/v1",
+    options: collectionsEndpoints.getTrendingCollectionsV1Options,
   });
 
   server.route({
